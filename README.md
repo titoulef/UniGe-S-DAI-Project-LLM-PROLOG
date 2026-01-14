@@ -1,5 +1,4 @@
-# Project Roadmap & Timeline
-**Project:** Standard Project #1: From natural language sentences to Prolog terms via LLMs  
+# **Project:** Standard Project #1: From natural language sentences to Prolog terms via LLMs  
 **Proposer:** Prof. Mascardi  
 **Max Points:** 12.5  
 

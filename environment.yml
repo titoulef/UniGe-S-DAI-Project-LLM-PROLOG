@@ -1,0 +1,12 @@
+name: prolog-llm
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.11
+  - swi-prolog  # Installe SWI-Prolog directement dans l'env (CRUCIAL pour pyswip)
+  - pip
+  - pip:
+    - ollama
+    - pyswip
+    - python-dotenv
