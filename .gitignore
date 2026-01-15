@@ -1,0 +1,27 @@
+# --- Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+
+# --- Environnements Virtuels (ne jamais commiter les venv) ---
+venv/
+env/
+.venv/
+
+# --- Fichiers générés par PySWIP / Prolog ---
+# C'est ici qu'on ignore votre fichier temporaire
+src/temp_kb.pl
+temp_kb.pl
+*.qlf   # Fichiers compilés Quick Load de Prolog (si utilisés)
+
+# --- IDE et Éditeurs (VS Code, Pycharm...) ---
+.vscode/
+.idea/
+*.swp
+
+# --- OS ---
+.DS_Store
+Thumbs.db
+
+# --- Variables d'environnement (Mots de passe, clés API) ---
+.env
