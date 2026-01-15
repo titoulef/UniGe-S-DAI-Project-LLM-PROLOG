@@ -47,17 +47,13 @@ class PrologValidator:
             # 2. Reload KB
             prolog.consult("src/temp_kb.pl")
             
-            # 3. Run Query
-            # Using list() forces immediate execution
-            print(f"Executing Prolog Query: {query_clean}")
             results = list(prolog.query(query_clean))
-            print(f"Prolog Query Results: {results}")
-            # 4. Process Results
+            # rocess Results
             if len(results) == 0:
-                return False, "False (No match found)"
+                return False, "False"
             
             if len(results) >= 1 and len(results[0]) == 0:
-                return True, "True (Fact is proven)"
+                return True, "True"
             
             # Format variable results (e.g. X = socrates)
             formatted = []

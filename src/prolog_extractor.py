@@ -4,7 +4,7 @@ import numpy as np
 from sentence_transformers import SentenceTransformer, util
 
 class PrologExtractor:
-    def __init__(self, model_name="qwen2.5-coder:14b", kb_path="src/knowledge_base.pl"):
+    def __init__(self, model_name="qwen2.5-coder:14b", kb_path="src/temp_kb.pl"):
         self.model = model_name
         self.embedder = SentenceTransformer('all-MiniLM-L6-v2')
         # Load initial static KB, but we will often refresh from temp_kb
