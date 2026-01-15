@@ -4,7 +4,7 @@ channels:
   - defaults
 dependencies:
   - python=3.11
-  - swi-prolog  # Installe SWI-Prolog directement dans l'env (CRUCIAL pour pyswip)
+  - swi-prolog  
   - pip
   - pip:
     - ollama

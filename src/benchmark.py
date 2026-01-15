@@ -1,16 +1,7 @@
-from google import genai
+import ollama
 import json
-import os
 
-# --- 1. CONFIGURATION GOOGLE ---
-# Remplace par ta clé API
-API_KEY = "AIzaSyAiUa4m1nuBBEX9uRnzUgkyAvIHqoMJHZA"
-
-
-try:
-    client = genai.Client(api_key="AIzaSyAiUa4m1nuBBEX9uRnzUgkyAvIHqoMJHZA")
-except Exception as e:
-    print(f"Erreur config Google: {e}")
+OLLAMA_MODEL = "llama3.1:8b" 
 
 TEST_DATASET = [
     {"nl": "Socrates is a man.", "expected": "man(socrates)."},
@@ -31,61 +22,77 @@ TEST_DATASET = [
 class BenchmarkEngine:
     def __init__(self, extractor_instance):
         self.extractor = extractor_instance
-
-      
+        self.model = OLLAMA_MODEL
 
     def evaluate_with_llm(self, nl, expected, actual):
-        """Demande au Juge si c'est équivalent."""
-        prompt = f"""
-        Act as a Prolog Logic Expert. Compare these snippets for: "{nl}".
-        EXPECTED: {expected}
-        ACTUAL: {actual}
-        Output ONLY JSON: {{"match": true/false, "reason": "short string"}}
         """
+        ask to a LLM if the two formulas are equivalent.
+        """
+        
+        system_prompt = """You are a Prolog Logic Expert. 
+        Compare the Expected Prolog code with the Actual Prolog code generated.
+        Determine if they are semantically equivalent logic.
+        You MUST answer with a valid JSON object containing:
+        - "match": boolean (true/false)
+        - "reason": string (short explanation)"""
+
+        user_content = f"""Input Sentence: "{nl}"
+        EXPECTED: {expected}
+        ACTUAL: {actual}"""
+
         try:
-            response = client.models.generate_content(
-                model="gemini-2.5-flash", contents=prompt
+            response = ollama.chat(
+                model=self.model,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_content}
+                ],
+                format='json'
             )
-            text = response.text.replace("```json", "").replace("```", "").strip()
-            data = json.loads(text)
-            return data.get("match", False), data.get("reason", "No reason")
+            
+            content = response['message']['content']
+            data = json.loads(content)
+            
+            return data.get("match", False), data.get("reason", "No reason provided")
+
+        except ollama.ResponseError as e:
+            return False, f"Ollama API Error: {e.error}"
+        except json.JSONDecodeError:
+            return False, f"Invalid JSON received: {content}"
         except Exception as e:
-            return False, f"Juge Error: {str(e)}"
+            return False, f"Unexpected Error: {e}"
 
     def run(self, n_samples=5, progress=None):
         results = []
         score = 0
-        dataset = TEST_DATASET[:n_samples]
+        dataset = TEST_DATASET[:min(n_samples, len(TEST_DATASET))]
         total = len(dataset)
         
-        print(f"--- Benchmark sur {total} tests ---")
+        print(f"--- Benchmark on {total} tests with model {self.model} ---")
 
         for i, item in enumerate(dataset):
             nl = item['nl']
             expected = item['expected']
             
-            # --- CORRECTION ICI ---
-            # On utilise 'is not None' pour éviter le crash IndexError de Gradio
             if progress is not None:
                 progress(0.1 + (i / total) * 0.8, desc=f"Test {i+1}/{total}")
             
-            # 1. Extraction
             actual_code = "Error"
             try:
                 actual_code = self.extractor.extract_formula(nl)
-                if not actual_code: actual_code = "Vide"
+                if not actual_code: actual_code = "Empty"
                 actual_code = actual_code.strip()
             except Exception as e:
                 actual_code = f"Crash: {e}"
 
-            # 2. Jugement
+            # judgment via Ollama
             is_match, reason = self.evaluate_with_llm(nl, expected, actual_code)
 
-            # 3. Résultat
             status = "✅" if is_match else "❌"
             if is_match: score += 1
             
             results.append([nl, expected, actual_code, f"{status} {reason}"])
+            print(f"[{i+1}/{total}] {status} Exp: {expected} | Act: {actual_code}")
 
         accuracy = round((score / total) * 100, 1) if total > 0 else 0
         return results, accuracy

@@ -1,92 +1,97 @@
 import ollama
 import re
+import numpy as np
+from sentence_transformers import SentenceTransformer, util
 
 class PrologExtractor:
-    def __init__(self, model_name="llama3.1:8b"):
+    def __init__(self, model_name="qwen2.5-coder:14b", kb_path="src/knowledge_base.pl"):
         self.model = model_name
+        self.embedder = SentenceTransformer('all-MiniLM-L6-v2')
+        self.known_predicates = self._load_kb_predicates(kb_path)
 
-    def get_system_prompt(self):
-        return """
-        You are an expert in Logic Programming and Prolog. 
-        Your task is to convert Natural Language sentences into valid Prolog formulas.
+    def _load_kb_predicates(self, path):
+        """Extrait les noms des prédicats du fichier .pl"""
+        predicates = set()
+        try:
+            with open(path, "r") as f:
+                content = f.read()
+                found = re.findall(r'([a-z_]+)\s*\(', content)
+                predicates.update(found)
+        except FileNotFoundError:
+            print("KB file not found, starting empty.")
+        print("List des predicats", list(predicates))
+        return list(predicates)
 
-        RULES:
-        1. OUTPUT ONLY CODE. No explanations, no markdown, no preamble.
-        2. SYNTAX: 
-        - Predicates and atoms must start with a lowercase letter (e.g., `man(socrates)`). 
-        - Variables must start with an Uppercase letter (e.g., `X`, `Y`).
+    def _find_best_predicate(self, nl_input):
+        """Trouve si un prédicat existant match avec le texte via embedding"""
+        if not self.known_predicates:
+            return None
+
+        input_embedding = self.embedder.encode(nl_input, convert_to_tensor=True)
+        kb_embeddings = self.embedder.encode(self.known_predicates, convert_to_tensor=True)
+
+        # compute similarity scores
+        hits = util.semantic_search(input_embedding, kb_embeddings, top_k=3)
+        print("Semantic Search Hits:", hits)
         
-        3. FACTS vs RULES:
-        - Specific statements about individuals are FACTS (e.g., "Laura is parent" -> `parent(laura).`).
-        - General statements using "All", "Every", "If", or PLURAL NOUNS representing a category (e.g., "Whales are mammals") are RULES.
-        - For categories, use variables: "Dogs are animals" -> `animal(X) :- dog(X).` (NOT `animal(dog).`).
+        # keep all those > 0.3
+        valid_predicates = [
+            self.known_predicates[hit['corpus_id']] 
+            for hit in hits[0] 
+            if hit['score'] > 0.25
+        ]
 
-        4. LOGICAL IMPLICATION (Crucial):
-        - Format: `CONCLUSION :- CONDITION.`
-        - "All A are B" means "If X is A, then X is B".
-        - Prolog Translation: `b(X) :- a(X).`
-        - Example: "Every child loves Santa" -> `loves(X, santa) :- child(X).` (Correct) vs `child(X) :- loves(X, santa).` (WRONG).
+        return valid_predicates
+    
+    def get_system_prompt(self, suggested_predicates=None):
+        hint = ""
+        if suggested_predicates and len(suggested_predicates) > 0:
+            formatted_preds = ", ".join([f"`{p}`" for p in suggested_predicates])
+            hint = f"CONTEXT: The Knowledge Base already contains these predicates: {formatted_preds}. YOU MUST USE THEM if they match the meaning."
 
-        5. ARGUMENT ORDER:
-        - Use `predicate(Subject, Object)`.
-        - The Subject of the sentence comes FIRST.
-        - Example: "Shakespeare wrote Hamlet" -> `wrote(shakespeare, hamlet).`
-
-        6. NO FREE VARIABLES IN FACTS: 
-        - Never use a Variable in a fact without a body. `loves(john, X).` is forbidden.
-
-        7. FORMATTING:
-        - End every statement with exactly ONE period (.). Do not use double periods (..).
-
-        EXAMPLES:
-        Input: "Socrates is a man."
-        Output: man(socrates).
-
-        Input: "Whales are mammals."
-        Output: mammal(X) :- whale(X).
-
-        Input: "Shakespeare wrote Hamlet."
-        Output: wrote(shakespeare, hamlet).
-
-        Input: "Every child loves Santa."
-        Output: loves(X, santa) :- child(X).
-
-        Input: "Garfield eats lasagna."
-        Output: eats(garfield, lasagna).
-
-        Input: "X is a grandparent of Z if X is parent of Y and Y is parent of Z."
-        Output: grandparent_of(X, Z) :- parent_of(X, Y), parent_of(Y, Z).
-        """
-
-
-    def _clean_output(self, text):
-        """
-        Clean the model's response to retain only the Prolog code.
-        Remove Markdown tags (```) and extraneous text.
-        """
-        # remove markdown code tags
-        clean = re.sub(r'```(prolog)?', '', text, flags=re.IGNORECASE)
-        clean = clean.replace('```', '')
+        return f"""
+        You are an expert in Prolog Logic. Convert Natural Language into valid Prolog syntax.
         
-        # remove common introductory phrases from LLMs
-        clean = clean.strip()
+        {hint}
+
+        ### GUIDELINES:
+        1. **ATOMS vs VARIABLES**: 
+           - Specific objects/names (Socrates, Paris, Santa, John) MUST be lowercase atoms (e.g., `socrates`, `santa`).
+           - Generic placeholders (someone, a child, anything) MUST be Uppercase variables (e.g., `X`, `Y`, `Child`).
+           - For abstract rules, prefer standard variables `X`, `Y`, `Z`.
+
+        2. **PREDICATE NAMING**:
+           - Keep predicates simple: use `loves(john, mary)` instead of `is_loving` or `love_relation`.
+           - Avoid constructing composite names: for "Whales are mammals", use `mammal(X) :- whale(X).` (NOT `whale_mammal(X).`).
+           - Avoid suffixes like `_of` unless explicitly strictly necessary (e.g., prefer `parent(X,Y)` over `parent_of(X,Y)` unless the CONTEXT says otherwise).
+
+        3. **LOGICAL STRUCTURE**:
+           - **Facts**: "Garfield eats lasagna" -> `eats(garfield, lasagna).`
+           - **Class/Type Rules**: "All [SubCategory] are [Category]" -> `category(X) :- subcategory(X).`
+             Example: "Whales are mammals" -> `mammal(X) :- whale(X).`
+           - **Conditional Rules**: "A is B if C" -> `b(A) :- c(A).`
         
-        # If the model output has multiple lines, try to keep the essential part
-        # For this project, we assume one formula per line or block
-        return clean
+        4. **OUTPUT FORMAT**:
+           - Output ONLY the Prolog code. No explanations. No Markdown.
+           - Ensure every statement ends with a period `.`.
+        """
 
     def extract_formula(self, natural_language_text):
+        suggested = self._find_best_predicate(natural_language_text)
+        print(f"Suggested Predicate: {suggested}")
+        
         try:
             response = ollama.chat(
                 model=self.model,
                 messages=[
-                    {"role": "system", "content": self.get_system_prompt()},
+                    {"role": "system", "content": self.get_system_prompt(suggested)},
                     {"role": "user", "content": f"Input: \"{natural_language_text}\"\nOutput:"}
                 ]
             )
-            
-            raw_content = response['message']['content']
-            return self._clean_output(raw_content)
-
+            return self._clean_output(response['message']['content'])
         except Exception as e:
-            return f"Error connecting to Ollama: {e}"
+            return f"Error: {e}"
+
+    def _clean_output(self, text):
+        clean = re.sub(r'```(prolog)?', '', text, flags=re.IGNORECASE)
+        return clean.replace('```', '').strip()
