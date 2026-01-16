@@ -4,6 +4,7 @@
 
 
 This project integrates **Large Language Models (LLMs)** with **Symbolic Logic (Prolog)**. It allows users to convert Natural Language into Prolog rules, execute logical queries, and benchmark the translation quality using an "LLM-as-a-judge" approach.
+
 **Starting Point:** [IOS Press Article 76178](https://ebooks.iospress.nl/volumearticle/76178).
 ---
 
