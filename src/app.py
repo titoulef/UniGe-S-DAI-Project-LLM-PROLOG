@@ -50,7 +50,7 @@ def run_solver(nl_query):
 
 def run_benchmark_ui(progress=gr.Progress()):
     try:
-        data, accuracy = benchmark_runner.run(n_samples=5, progress=progress)
+        data, accuracy = benchmark_runner.run(n_samples=10, progress=progress)
         summary = f"### 🎯 Model Accuracy: {accuracy}%"
         return data, summary
     except Exception as e:
@@ -74,27 +74,29 @@ with gr.Blocks(theme=gr.themes.Soft(), title="Neuro-Symbolic Prolog") as demo:
     
     with gr.Tabs():
         
-        # TAB 1: EXTRACTOR (Existing)
         with gr.Tab("📝 Knowledge Extractor"):
             with gr.Row():
                 with gr.Column():
+                    
                     input_text = gr.Textbox(lines=5, label="Natural Language Fact/Rule", placeholder="Ex: Socrates is a man. All men are mortal.")
                     convert_btn = gr.Button("Add to Knowledge Base", variant="primary")
-                    
-                    gr.Examples([["Socrates is a man."], ["Every child loves Santa. Laura is a child"]], inputs=input_text)
 
-                    with gr.Accordion("📚 Current Knowledge Base (temp_kb.pl)", open=False):
-                        kb_display = gr.Code(language=None, value=get_kb_content, interactive=False)
-                        refresh_kb_btn = gr.Button("🔄 Refresh KB View", size="sm")
-                        refresh_kb_btn.click(get_kb_content, outputs=kb_display)
+                    
 
                 with gr.Column():
                     output_code = gr.Code(language=None, label="Generated Logic")
                     output_status = gr.Markdown(label="System Status")
-            
+                    
+            with gr.Row():
+                with gr.Accordion("📚 Current Knowledge Base (temp_kb.pl)", open=False):
+                        kb_display = gr.Code(language=None, value=get_kb_content, interactive=False)
+                        refresh_kb_btn = gr.Button("🔄 Refresh KB View", size="sm")
+                        refresh_kb_btn.click(get_kb_content, outputs=kb_display)
+            with gr.Row():
+                gr.Examples([["All men are mortal. Socrates is a man."], ["Every child loves Santa. Laura is a child"], ["Paris is the capital of France."]], inputs=input_text, label=None)
+
             convert_btn.click(process_natural_language, input_text, [output_code, output_status])
 
-        # TAB 2: SOLVER (New)
         with gr.Tab("🔍 Prolog Solver"):
             gr.Markdown("Ask questions based on the logic you added in the Extractor tab.")
             with gr.Row():
@@ -108,7 +110,6 @@ with gr.Blocks(theme=gr.themes.Soft(), title="Neuro-Symbolic Prolog") as demo:
 
             solve_btn.click(run_solver, solver_input, [solver_generated_code, solver_result])
 
-        # TAB 3: BENCHMARK (Existing)
         with gr.Tab("🧪 Benchmark"):
             bench_btn = gr.Button("Run Benchmark", variant="stop")
             bench_summary = gr.Markdown("### Ready")

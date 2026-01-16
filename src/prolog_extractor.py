@@ -4,7 +4,7 @@ import numpy as np
 from sentence_transformers import SentenceTransformer, util
 
 class PrologExtractor:
-    def __init__(self, model_name="qwen2.5-coder:14b", kb_path="src/temp_kb.pl"):
+    def __init__(self, model_name="llama3.1:8b", kb_path="src/temp_kb.pl"):
         self.model = model_name
         self.embedder = SentenceTransformer('all-MiniLM-L6-v2')
         # Load initial static KB, but we will often refresh from temp_kb
@@ -50,66 +50,83 @@ class PrologExtractor:
         hint = ""
         if suggested_predicates and len(suggested_predicates) > 0:
             formatted_preds = ", ".join([f"`{p}`" for p in suggested_predicates])
-            hint = f"CONTEXT: The Knowledge Base already contains these predicates: {formatted_preds}. YOU MUST USE THEM if they match the meaning."
-
+            hint = f"CONTEXT: The Knowledge Base already contains these predicates: {formatted_preds}. Prioritize using them to maintain consistency."
 
         base_prompt = f"""
-        You are an expert in Prolog Logic. {hint}
+        You are an expert in Prolog Logic. Your task is to translate Natural Language into syntactically correct Prolog code. {hint}
         """
 
         if task_type == "extraction":
             return base_prompt + """
-            ### GUIDELINES:
-            1. **ATOMS vs VARIABLES**: 
-            - Specific objects/names (Socrates, Paris, Santa, John) MUST be lowercase atoms (e.g., `socrates`, `santa`).
-            - Generic placeholders (someone, a child, anything) MUST be Uppercase variables (e.g., `X`, `Y`, `Child`).
-            - For abstract rules, prefer standard variables `X`, `Y`, `Z`.
+            ### CORE TRANSLATION RULES:
 
-            2. **PREDICATE NAMING**:
-            - Keep predicates simple: use `loves(john, mary)` instead of `is_loving` or `love_relation`.
-            - Avoid constructing composite names: for "Whales are mammals", use `mammal(X) :- whale(X).` (NOT `whale_mammal(X).`).
-            - Avoid suffixes like `_of` unless explicitly strictly necessary (e.g., prefer `parent(X,Y)` over `parent_of(X,Y)` unless the CONTEXT says otherwise).
+            1. **DISTINCTION: INSTANCE vs CLASS**:
+                - **Specific Instance** (John, Paris, Socrates) -> **Atom** (lowercase).
+                    - "Socrates is a man" -> `man(socrates).`
+                - **General Class** (Men, Whales, Children) -> **Rule with Variable** (Uppercase).
+                    - "All clown are funny" -> `funny(X) :- clown(X).` (NOT `funny(clown).`)
+                    - "Clown are human" -> `human(X) :- clown(X).` (NOT `human(clown).`)
 
-            3. **LOGICAL STRUCTURE**:
-            - **Facts**: "Garfield eats lasagna" -> `eats(garfield, lasagna).`
-            - **Class/Type Rules**: "All [SubCategory] are [Category]" -> `category(X) :- subcategory(X).`
-                Example: "Whales are mammals" -> `mammal(X) :- whale(X).`
-            - **Conditional Rules**: "A is B if C" -> `b(A) :- c(A).`
+            2. **LOGICAL PATTERNS**:
+                - **"Every A does B"** -> `does(X, b) :- a(X).`
+                    - "Every child loves Santa" -> `loves(X, santa) :- child(X).`
+                - **"All A are B"** -> `b(X) :- a(X).`
+                - **"A if B and C"** -> `a(X) :- b(X), c(X).`
             
+            3. **SYNTAX & VARIABLES**:
+                - Use standard variables `X`, `Y`, `Z` for general rules.
+                - Do NOT use descriptive variables like `Child` or `Person`.
+                - End every line with a single period `.`.
+
             4. **OUTPUT FORMAT**:
-            - Output ONLY the Prolog code. No explanations. No Markdown.
-            - Ensure every statement ends with a period `.`.
+                - **STRICTLY CODE ONLY**. No "Note:", no explanations, no Markdown blocks.
+                - If the input is a general statement, OUTPUT A RULE (:-), not a simple fact.
+
+            ### FEW-SHOT EXAMPLES:
+            Input: "John loves Mary."
+            Output: loves(john, mary).
+
+            Input: "All humans are mortal."
+            Output: mortal(X) :- human(X).
+
+            Input: "Every bird can fly."
+            Output: can_fly(X) :- bird(X).
+
+            Input: "X is a sister of Y if X is female and parents are same."
+            Output: sister(X, Y) :- female(X), parent(Z, X), parent(Z, Y).
             """
+        
         elif task_type == "query":
             return base_prompt + """
             Convert the Natural Language Question into a Prolog Query.
-            - If it asks "Is X Y?", output "predicate(x, y)."
-            - If it asks "Who/What...?", use a Variable (Capitalized) like "predicate(X, y)."
-            - OUTPUT ONLY THE CODE. NO EXPLANATIONS.
+            - "Is X Y?" -> `predicate(x, y).`
+            - "Who is X?" -> `predicate(Variable, x).`
+            
+            OUTPUT ONLY THE CODE.
             Example: "Who loves Mary?" -> loves(X, mary).
-            Example: "Is Socrates mortal?" -> mortal(socrates).
             """
-
+        
+            
     def extract_formula(self, natural_language_text):
         # Default extraction logic (Facts/Rules)
         suggested = self._find_best_predicate(natural_language_text)
         prompt = self.get_system_prompt("extraction", suggested)
-        print(f"Extractor Context Predicates: {suggested}")
-        print(f"Extractor System Prompt: {prompt}")
+        #print(f"Extractor Context Predicates: {suggested}")
+        #print(f"Extractor System Prompt: {prompt}")
         return self._call_llm(prompt, natural_language_text)
 
     def generate_query(self, natural_language_query):
         self.refresh_kb_predicates("src/temp_kb.pl")
         
         suggested = self._find_best_predicate(natural_language_query)
-        print(f"Solver Context Predicates: {suggested}")
+        #print(f"Solver Context Predicates: {suggested}")
 
         if not suggested:
             return None # Solver cannot work if no relevant predicate exists
         
         prompt = self.get_system_prompt("query", suggested)
-        print(f"Suggested Predicates for Query: {suggested}")
-        print(f"Solver System Prompt: {prompt}")
+        #print(f"Suggested Predicates for Query: {suggested}")
+        #print(f"Solver System Prompt: {prompt}")
         return self._call_llm(prompt, natural_language_query)
 
     def _call_llm(self, system_prompt, user_input):
